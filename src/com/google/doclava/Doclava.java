@@ -121,6 +121,7 @@ public class Doclava {
   public static boolean referenceOnly = false;
   public static boolean staticOnly = false;
   public static boolean yamlV2 = false; /* whether to build the new version of the yaml file */
+  public static boolean devsite = false; /* whether to build docs for devsite */
   public static AuxSource auxSource = new EmptyAuxSource();
   public static Linter linter = new EmptyLinter();
   public static boolean android = false;
@@ -190,9 +191,11 @@ public class Doclava {
     String privateApiFile = null;
     String privateDexApiFile = null;
     String debugStubsFile = "";
+    String apiMappingFile = null;
     HashSet<String> stubPackages = null;
     HashSet<String> stubImportPackages = null;
     boolean stubSourceOnly = false;
+    boolean keepStubComments = false;
     ArrayList<String> knownTagsFiles = new ArrayList<String>();
 
     root = r;
@@ -301,6 +304,8 @@ public class Doclava {
         }
       } else if (a[0].equals("-stubsourceonly")) {
         stubSourceOnly = true;
+      } else if (a[0].equals("-keepstubcomments")) {
+        keepStubComments = true;
       } else if (a[0].equals("-sdkvalues")) {
         sdkValuePath = a[1];
       } else if (a[0].equals("-api")) {
@@ -317,6 +322,8 @@ public class Doclava {
         privateApiFile = a[1];
       } else if (a[0].equals("-privateDexApi")) {
         privateDexApiFile = a[1];
+      } else if (a[0].equals("-apiMapping")) {
+        apiMappingFile = a[1];
       } else if (a[0].equals("-nodocs")) {
         generateDocs = false;
       } else if (a[0].equals("-noassets")) {
@@ -375,6 +382,7 @@ public class Doclava {
       } else if (a[0].equals("-yamlV2")) {
         yamlV2 = true;
       } else if (a[0].equals("-devsite")) {
+        devsite = true;
         // Don't copy any assets to devsite output
         includeAssets = false;
         USE_DEVSITE_LOCALE_OUTPUT_PATHS = true;
@@ -384,7 +392,8 @@ public class Doclava {
           System.out.println("  ... Generating static html only for devsite");
         }
         if (yamlNavFile == null) {
-          yamlNavFile = "_book.yaml";
+          // Use _toc.yaml as default to avoid clobbering possible manual _book.yaml files
+          yamlNavFile = "_toc.yaml";
         }
       } else if (a[0].equals("-android")) {
         auxSource = new AndroidAuxSource();
@@ -422,9 +431,8 @@ public class Doclava {
       }
       // If no custom template path is provided, and this is a devsite build,
       // then use the bundled templates-sdk/ files by default
-      if (templates.isEmpty() && USE_DEVSITE_LOCALE_OUTPUT_PATHS) {
+      if (templates.isEmpty() && devsite) {
         resourceLoaders.add(new ClassResourceLoader(Doclava.class, "/assets/templates-sdk"));
-        System.out.println("\n#########  OK, Using templates-sdk ############\n");
       }
 
       templates = ClearPage.getBundledTemplateDirs();
@@ -445,7 +453,11 @@ public class Doclava {
       if (NAVTREE_ONLY) {
         if (AT_LINKS_NAVTREE) {
           AtLinksNavTree.writeAtLinksNavTree(javadocDir);
+        } else if (yamlV2) {
+          // Generate DAC-formatted left-nav for devsite
+          NavTree.writeYamlTree2(javadocDir, yamlNavFile);
         } else {
+          // This shouldn't happen; this is the legacy DAC left nav file
           NavTree.writeNavTree(javadocDir, "");
         }
         return true;
@@ -516,17 +528,19 @@ public class Doclava {
         } else if(gcmRef){
           refPrefix = "gcm-";
         }
-        NavTree.writeNavTree(javadocDir, refPrefix);
 
         // Write yaml tree.
-        if (yamlNavFile != null){
-          NavTree.writeYamlTree(javadocDir, yamlNavFile);
+        if (yamlNavFile != null) {
           if (yamlV2) {
-            // Generate both for good measure, to make transitions easier, but change the filename
-            // for the new one so there's yet another explicit opt-in required by fixing the name.
-            yamlNavFile = "_NEW" + yamlNavFile;
+            // Generate DAC-formatted left-nav for devsite
             NavTree.writeYamlTree2(javadocDir, yamlNavFile);
+          } else {
+            // Generate legacy devsite left-nav (shows sub-classes nested under parent class)
+            NavTree.writeYamlTree(javadocDir, yamlNavFile);
           }
+        } else {
+          // This shouldn't happen; this is the legacy DAC left nav file
+          NavTree.writeNavTree(javadocDir, refPrefix);
         }
 
         // Packages Pages
@@ -554,7 +568,7 @@ public class Doclava {
       if (!sTaglist.isEmpty()) {
         PageMetadata.WriteListByLang(sTaglist);
         // For devsite (ds) reference only, write samples_metadata to out dir
-        if ((USE_DEVSITE_LOCALE_OUTPUT_PATHS) && (!DEVSITE_STATIC_ONLY)) {
+        if ((devsite) && (!DEVSITE_STATIC_ONLY)) {
           PageMetadata.WriteSamplesListByLang(sTaglist);
         }
       }
@@ -563,10 +577,10 @@ public class Doclava {
     // Stubs
     if (stubsDir != null || apiFile != null || dexApiFile != null || proguardFile != null
         || removedApiFile != null || removedDexApiFile != null || exactApiFile != null
-        || privateApiFile != null || privateDexApiFile != null) {
+        || privateApiFile != null || privateDexApiFile != null || apiMappingFile != null) {
       Stubs.writeStubsAndApi(stubsDir, apiFile, dexApiFile, proguardFile, removedApiFile,
-          removedDexApiFile, exactApiFile, privateApiFile, privateDexApiFile, stubPackages,
-          stubImportPackages, stubSourceOnly);
+          removedDexApiFile, exactApiFile, privateApiFile, privateDexApiFile, apiMappingFile,
+          stubPackages, stubImportPackages, stubSourceOnly, keepStubComments);
     }
 
     Errors.printErrors();
@@ -855,6 +869,9 @@ public class Doclava {
     if (option.equals("-stubsourceonly")) {
       return 1;
     }
+    if (option.equals("-keepstubcomments")) {
+      return 1;
+    }
     if (option.equals("-sdkvalues")) {
       return 2;
     }
@@ -877,6 +894,9 @@ public class Doclava {
       return 2;
     }
     if (option.equals("-privateDexApi")) {
+      return 2;
+    }
+    if (option.equals("-apiMapping")) {
       return 2;
     }
     if (option.equals("-nodocs")) {
@@ -1200,7 +1220,7 @@ public class Doclava {
 
     // Write the lists for JD documents (if there are HTML directories to process)
     // Skip this for devsite builds
-    if ((inputPathHtmlDirs.size() > 0) && (!USE_DEVSITE_LOCALE_OUTPUT_PATHS)) {
+    if ((inputPathHtmlDirs.size() > 0) && (!devsite)) {
       Data jddata = makeHDF();
       Iterator counter = new Iterator();
       for (String htmlDir : inputPathHtmlDirs) {
@@ -1562,8 +1582,11 @@ public class Doclava {
     setPageTitle(data, "Class Index");
     ClearPage.write(data, "classes.cs", packageDir + "classes" + htmlExtension);
 
-    // Index page redirects to the classes.html page, so use the same directory
-    writeIndex(packageDir);
+    if (!devsite) {
+      // Index page redirects to the classes.html page, so use the same directory
+      // This page is not needed for devsite builds, which should instead use _redirects.yaml
+      writeIndex(packageDir);
+    }
   }
 
   // we use the word keywords because "index" means something else in html land
